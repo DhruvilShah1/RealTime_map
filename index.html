@@ -3,32 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🚶 Live GPS Tracker</title>
+  <title>📍 Enhanced GPS Tracker</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
   <style>
     body {
       margin: 0;
       font-family: 'Segoe UI', sans-serif;
-      background: #f7f7f7;
-      color: #333;
+      background: #f4f4f4;
     }
 
     #map {
-      height: 65vh;
+      height: 60vh;
       width: 100%;
     }
 
     #statusBox {
       padding: 15px;
-      font-size: 1rem;
       background: #fff;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+      font-size: 1rem;
+      border-top: 1px solid #ccc;
+      box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
     }
 
     .info {
-      margin-bottom: 8px;
+      margin-bottom: 10px;
       line-height: 1.5em;
     }
 
@@ -44,17 +43,28 @@
     }
 
     .status-ok { color: green; }
+    .status-waiting { color: orange; }
     .status-error { color: red; }
+
+    .footer {
+      text-align: center;
+      font-size: 0.8rem;
+      padding-top: 10px;
+      color: #777;
+    }
   </style>
 </head>
 <body>
 
   <div id="map"></div>
   <div id="statusBox">
-    <div id="gpsStatus" class="info">📡 Initializing GPS...</div>
-    <div id="coords" class="info">Waiting for location...</div>
-    <div id="accuracy" class="info"></div>
-    <div id="direction" class="info"></div>
+    <div id="gpsStatus" class="info status-waiting">📡 Waiting for GPS...</div>
+    <div id="coords" class="info">📍 Location: <em>--</em></div>
+    <div id="accuracy" class="info">📏 Accuracy: <em>--</em></div>
+    <div id="speed" class="info">🏃 Speed: <em>--</em></div>
+    <div id="direction" class="info">🧭 Direction: <em>--</em></div>
+    <div id="lastUpdate" class="info">🕒 Last update: <em>--</em></div>
+    <div class="footer">Made for mobile GPS testing 🚀</div>
   </div>
 
   <script>
@@ -67,8 +77,9 @@
     let marker = null;
     let circle = null;
     let lastLatLng = null;
+    let lastTime = null;
+    let trail = [];
     let trailLine = null;
-    const trailCoords = [];
 
     const arrowIcon = L.divIcon({
       className: '',
@@ -80,95 +91,112 @@
     const gpsStatus = document.getElementById("gpsStatus");
     const coordsEl = document.getElementById("coords");
     const accuracyEl = document.getElementById("accuracy");
+    const speedEl = document.getElementById("speed");
     const directionEl = document.getElementById("direction");
-
-    if ("geolocation" in navigator) {
-      gpsStatus.textContent = "📡 Waiting for GPS fix...";
-
-      navigator.geolocation.watchPosition(position => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const accuracy = position.coords.accuracy;
-
-        const newLatLng = L.latLng(lat, lng);
-        let angle = 0;
-
-        if (lastLatLng) {
-          angle = getBearing(lastLatLng.lat, lastLatLng.lng, lat, lng);
-        }
-
-        lastLatLng = newLatLng;
-
-        // Trail Line
-        trailCoords.push(newLatLng);
-        if (trailLine) {
-          trailLine.setLatLngs(trailCoords);
-        } else {
-          trailLine = L.polyline(trailCoords, { color: "#007bff", weight: 4 }).addTo(map);
-        }
-
-        // Marker
-        if (marker) {
-          marker.setLatLng(newLatLng);
-        } else {
-          marker = L.marker(newLatLng, { icon: arrowIcon }).addTo(map);
-        }
-
-        // Rotate arrow
-        const arrowEl = document.getElementById("arrow");
-        if (arrowEl) {
-          arrowEl.style.transform = `rotate(${angle}deg)`;
-        }
-
-        // Accuracy Circle
-        if (circle) {
-          circle.setLatLng(newLatLng);
-          circle.setRadius(accuracy);
-        } else {
-          circle = L.circle(newLatLng, {
-            radius: accuracy,
-            color: "#28a745",
-            fillOpacity: 0.2
-          }).addTo(map);
-        }
-
-        map.setView(newLatLng, 17);
-
-        // UI Update
-        gpsStatus.innerHTML = "✅ GPS Active";
-        gpsStatus.className = "info status-ok";
-        coordsEl.innerHTML = `📍 <strong>${lat.toFixed(6)}</strong>, <strong>${lng.toFixed(6)}</strong>`;
-        accuracyEl.innerHTML = `📏 Accuracy: <strong>${accuracy.toFixed(1)}m</strong>`;
-        directionEl.innerHTML = `🧭 Direction: <strong>${angle.toFixed(2)}°</strong>`;
-
-        console.log("Position:", { lat, lng, accuracy, angle });
-      }, err => {
-        gpsStatus.innerHTML = `❌ GPS Error: ${err.message}`;
-        gpsStatus.className = "info status-error";
-        coordsEl.innerHTML = "";
-        accuracyEl.innerHTML = "";
-        directionEl.innerHTML = "";
-        console.error("GPS error:", err);
-      }, {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000
-      });
-
-    } else {
-      gpsStatus.innerHTML = "❌ GPS not supported on this browser.";
-    }
+    const lastUpdateEl = document.getElementById("lastUpdate");
 
     function getBearing(lat1, lon1, lat2, lon2) {
       const toRad = deg => deg * Math.PI / 180;
       const toDeg = rad => rad * 180 / Math.PI;
-
       const dLon = toRad(lon2 - lon1);
       const y = Math.sin(dLon) * Math.cos(toRad(lat2));
       const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-        Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+                Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
       const brng = Math.atan2(y, x);
       return (toDeg(brng) + 360) % 360;
+    }
+
+    function formatTime() {
+      const now = new Date();
+      return now.toLocaleTimeString();
+    }
+
+    if ("geolocation" in navigator) {
+      gpsStatus.innerHTML = "📡 GPS supported. Waiting...";
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude, accuracy, speed } = pos.coords;
+          const latLng = L.latLng(latitude, longitude);
+          const now = Date.now();
+
+          let bearing = 0;
+          let kmh = 0;
+
+          if (lastLatLng) {
+            bearing = getBearing(lastLatLng.lat, lastLatLng.lng, latitude, longitude);
+            const timeDiff = (now - lastTime) / 1000; // seconds
+            const distance = latLng.distanceTo(lastLatLng); // meters
+            kmh = (distance / timeDiff) * 3.6; // m/s to km/h
+
+            // Trail line
+            trail.push(latLng);
+            if (trailLine) {
+              trailLine.setLatLngs(trail);
+            } else {
+              trailLine = L.polyline(trail, { color: "#007bff", weight: 4 }).addTo(map);
+            }
+
+            if (distance > 3 && navigator.vibrate) {
+              navigator.vibrate(100); // vibrate slightly on movement
+            }
+          }
+
+          lastLatLng = latLng;
+          lastTime = now;
+
+          if (marker) {
+            marker.setLatLng(latLng);
+          } else {
+            marker = L.marker(latLng, { icon: arrowIcon }).addTo(map);
+          }
+
+          if (circle) {
+            circle.setLatLng(latLng).setRadius(accuracy);
+          } else {
+            circle = L.circle(latLng, {
+              radius: accuracy,
+              color: "#28a745",
+              fillOpacity: 0.2
+            }).addTo(map);
+          }
+
+          const arrow = document.getElementById("arrow");
+          if (arrow) arrow.style.transform = `rotate(${bearing}deg)`;
+
+          map.setView(latLng, 17);
+
+          // Update UI
+          gpsStatus.innerHTML = "✅ Tracking…";
+          gpsStatus.className = "info status-ok";
+          coordsEl.innerHTML = `📍 Location: <strong>${latitude.toFixed(6)}, ${longitude.toFixed(6)}</strong>`;
+          accuracyEl.innerHTML = `📏 Accuracy: <strong>${accuracy.toFixed(1)} m</strong>`;
+          directionEl.innerHTML = `🧭 Direction: <strong>${bearing.toFixed(2)}°</strong>`;
+          speedEl.innerHTML = `🏃 Speed: <strong>${(speed ? (speed * 3.6).toFixed(1) : kmh.toFixed(1))} km/h</strong>`;
+          lastUpdateEl.innerHTML = `🕒 Last update: <strong>${formatTime()}</strong>`;
+
+          // Console for debugging
+          console.log("GPS", {
+            lat: latitude,
+            lng: longitude,
+            accuracy,
+            kmh,
+            bearing,
+            time: formatTime()
+          });
+        },
+        (err) => {
+          gpsStatus.innerHTML = "❌ Error: " + err.message;
+          gpsStatus.className = "info status-error";
+          console.error("GPS Error:", err);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 10000
+        }
+      );
+    } else {
+      gpsStatus.innerHTML = "❌ GPS not supported on this browser.";
     }
   </script>
 
