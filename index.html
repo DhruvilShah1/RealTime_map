@@ -3,202 +3,211 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>📍 Enhanced GPS Tracker</title>
+  <title>📍 Live GPS Route Tracker</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body {
       margin: 0;
       font-family: 'Segoe UI', sans-serif;
-      background: #f4f4f4;
+      background: #e9f0f5;
     }
-
     #map {
-      height: 60vh;
+      height: 65vh;
       width: 100%;
     }
-
     #statusBox {
-      padding: 15px;
+      padding: 20px;
       background: #fff;
       font-size: 1rem;
-      border-top: 1px solid #ccc;
-      box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.1);
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
     }
-
     .info {
-      margin-bottom: 10px;
-      line-height: 1.5em;
+      margin-bottom: 12px;
+      line-height: 1.6em;
     }
-
     .info strong {
       color: #007bff;
     }
-
     .arrow-icon {
       width: 30px;
       height: 30px;
       background: url('https://cdn-icons-png.flaticon.com/512/61/61168.png') no-repeat center;
       background-size: contain;
     }
-
     .status-ok { color: green; }
     .status-waiting { color: orange; }
     .status-error { color: red; }
-
     .footer {
       text-align: center;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
+      color: #888;
       padding-top: 10px;
-      color: #777;
     }
   </style>
 </head>
 <body>
 
-  <div id="map"></div>
-  <div id="statusBox">
-    <div id="gpsStatus" class="info status-waiting">📡 Waiting for GPS...</div>
-    <div id="coords" class="info">📍 Location: <em>--</em></div>
-    <div id="accuracy" class="info">📏 Accuracy: <em>--</em></div>
-    <div id="speed" class="info">🏃 Speed: <em>--</em></div>
-    <div id="direction" class="info">🧭 Direction: <em>--</em></div>
-    <div id="lastUpdate" class="info">🕒 Last update: <em>--</em></div>
-    <div class="footer">Made for mobile GPS testing 🚀</div>
-  </div>
+<div id="map"></div>
+<div id="statusBox">
+  <div id="gpsStatus" class="info status-waiting">📡 Waiting for GPS...</div>
+  <div id="coords" class="info">📍 Location: <em>--</em></div>
+  <div id="accuracy" class="info">📏 Accuracy: <em>--</em></div>
+  <div id="speed" class="info">🏃 Speed: <em>--</em></div>
+  <div id="direction" class="info">🧭 Direction: <em>--</em></div>
+  <div id="lastUpdate" class="info">🕒 Last update: <em>--</em></div>
+  <div class="footer">📱 Realtime Route Tracker to Jabeshwar Hospital</div>
+</div>
 
-  <script>
-    let map = L.map('map').setView([0, 0], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+<script>
+  const destination = L.latLng(22.32257, 72.62235); // Jabeshwar Hospital coordinates
+  let destinationAlertShown = false;
 
-    let marker = null;
-    let circle = null;
-    let lastLatLng = null;
-    let lastTime = null;
-    let trail = [];
-    let trailLine = null;
+  let map = L.map('map').setView(destination, 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 
-    const arrowIcon = L.divIcon({
-      className: '',
-      html: '<div class="arrow-icon" id="arrow"></div>',
-      iconSize: [30, 30],
-      iconAnchor: [15, 15]
-    });
+  // Destination Marker
+  const hospitalMarker = L.marker(destination).addTo(map).bindPopup("🏥 Jabeshwar Hospital").openPopup();
 
-    const gpsStatus = document.getElementById("gpsStatus");
-    const coordsEl = document.getElementById("coords");
-    const accuracyEl = document.getElementById("accuracy");
-    const speedEl = document.getElementById("speed");
-    const directionEl = document.getElementById("direction");
-    const lastUpdateEl = document.getElementById("lastUpdate");
+  // Arrow icon for current direction
+  const arrowIcon = L.divIcon({
+    className: '',
+    html: '<div class="arrow-icon" id="arrow"></div>',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+  });
 
-    function getBearing(lat1, lon1, lat2, lon2) {
-      const toRad = deg => deg * Math.PI / 180;
-      const toDeg = rad => rad * 180 / Math.PI;
-      const dLon = toRad(lon2 - lon1);
-      const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-      const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-                Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-      const brng = Math.atan2(y, x);
-      return (toDeg(brng) + 360) % 360;
-    }
+  let marker = null;
+  let circle = null;
+  let lastLatLng = null;
+  let lastTime = null;
+  let trail = [];
+  let trailLine = null;
 
-    function formatTime() {
-      const now = new Date();
-      return now.toLocaleTimeString();
-    }
+  const gpsStatus = document.getElementById("gpsStatus");
+  const coordsEl = document.getElementById("coords");
+  const accuracyEl = document.getElementById("accuracy");
+  const speedEl = document.getElementById("speed");
+  const directionEl = document.getElementById("direction");
+  const lastUpdateEl = document.getElementById("lastUpdate");
 
-    if ("geolocation" in navigator) {
-      gpsStatus.innerHTML = "📡 GPS supported. Waiting...";
-      navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude, accuracy, speed } = pos.coords;
-          const latLng = L.latLng(latitude, longitude);
-          const now = Date.now();
+  function getBearing(lat1, lon1, lat2, lon2) {
+    const toRad = deg => deg * Math.PI / 180;
+    const toDeg = rad => rad * 180 / Math.PI;
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+              Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    const brng = Math.atan2(y, x);
+    return (toDeg(brng) + 360) % 360;
+  }
 
-          let bearing = 0;
-          let kmh = 0;
+  function formatTime() {
+    return new Date().toLocaleTimeString();
+  }
 
-          if (lastLatLng) {
-            bearing = getBearing(lastLatLng.lat, lastLatLng.lng, latitude, longitude);
-            const timeDiff = (now - lastTime) / 1000; // seconds
-            const distance = latLng.distanceTo(lastLatLng); // meters
-            kmh = (distance / timeDiff) * 3.6; // m/s to km/h
+  if ("geolocation" in navigator) {
+    gpsStatus.innerHTML = "📡 GPS supported. Waiting...";
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy, speed } = pos.coords;
+        const latLng = L.latLng(latitude, longitude);
+        const now = Date.now();
 
-            // Trail line
-            trail.push(latLng);
-            if (trailLine) {
-              trailLine.setLatLngs(trail);
-            } else {
-              trailLine = L.polyline(trail, { color: "#007bff", weight: 4 }).addTo(map);
-            }
+        let bearing = 0;
+        let kmh = 0;
 
-            if (distance > 3 && navigator.vibrate) {
-              navigator.vibrate(100); // vibrate slightly on movement
-            }
-          }
+        if (lastLatLng) {
+          const distance = latLng.distanceTo(lastLatLng); // meters
+          bearing = getBearing(lastLatLng.lat, lastLatLng.lng, latitude, longitude);
+          const timeDiff = (now - lastTime) / 1000;
+          kmh = (distance / timeDiff) * 3.6;
 
-          lastLatLng = latLng;
-          lastTime = now;
-
-          if (marker) {
-            marker.setLatLng(latLng);
+          // Draw route
+          trail.push(latLng);
+          if (trailLine) {
+            trailLine.setLatLngs(trail);
           } else {
-            marker = L.marker(latLng, { icon: arrowIcon }).addTo(map);
+            trailLine = L.polyline(trail, { color: "#007bff", weight: 4 }).addTo(map);
           }
 
-          if (circle) {
-            circle.setLatLng(latLng).setRadius(accuracy);
-          } else {
-            circle = L.circle(latLng, {
-              radius: accuracy,
-              color: "#28a745",
-              fillOpacity: 0.2
-            }).addTo(map);
+          // Alert when near hospital
+          const toHospital = latLng.distanceTo(destination);
+          if (toHospital < 100 && !destinationAlertShown) {
+            alert("🚨 You are within 100 meters of Jabeshwar Hospital!");
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            destinationAlertShown = true;
           }
 
-          const arrow = document.getElementById("arrow");
-          if (arrow) arrow.style.transform = `rotate(${bearing}deg)`;
-
-          map.setView(latLng, 17);
-
-          // Update UI
-          gpsStatus.innerHTML = "✅ Tracking…";
-          gpsStatus.className = "info status-ok";
-          coordsEl.innerHTML = `📍 Location: <strong>${latitude.toFixed(6)}, ${longitude.toFixed(6)}</strong>`;
-          accuracyEl.innerHTML = `📏 Accuracy: <strong>${accuracy.toFixed(1)} m</strong>`;
-          directionEl.innerHTML = `🧭 Direction: <strong>${bearing.toFixed(2)}°</strong>`;
-          speedEl.innerHTML = `🏃 Speed: <strong>${(speed ? (speed * 3.6).toFixed(1) : kmh.toFixed(1))} km/h</strong>`;
-          lastUpdateEl.innerHTML = `🕒 Last update: <strong>${formatTime()}</strong>`;
-
-          // Console for debugging
-          console.log("GPS", {
-            lat: latitude,
-            lng: longitude,
-            accuracy,
-            kmh,
-            bearing,
-            time: formatTime()
-          });
-        },
-        (err) => {
-          gpsStatus.innerHTML = "❌ Error: " + err.message;
-          gpsStatus.className = "info status-error";
-          console.error("GPS Error:", err);
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 10000
+          if (distance > 3 && navigator.vibrate) {
+            navigator.vibrate(100);
+          }
         }
-      );
-    } else {
-      gpsStatus.innerHTML = "❌ GPS not supported on this browser.";
-    }
-  </script>
+
+        lastLatLng = latLng;
+        lastTime = now;
+
+        if (marker) {
+          marker.setLatLng(latLng);
+        } else {
+          marker = L.marker(latLng, { icon: arrowIcon }).addTo(map);
+        }
+
+        if (circle) {
+          circle.setLatLng(latLng).setRadius(accuracy);
+        } else {
+          circle = L.circle(latLng, {
+            radius: accuracy,
+            color: "#28a745",
+            fillOpacity: 0.2
+          }).addTo(map);
+        }
+
+        const arrow = document.getElementById("arrow");
+        if (arrow) arrow.style.transform = `rotate(${bearing}deg)`;
+
+        map.setView(latLng, 17);
+
+        gpsStatus.innerHTML = "✅ Tracking…";
+        gpsStatus.className = "info status-ok";
+        coordsEl.innerHTML = `📍 Location: <strong>${latitude.toFixed(6)}, ${longitude.toFixed(6)}</strong>`;
+        accuracyEl.innerHTML = `📏 Accuracy: <strong>${accuracy.toFixed(1)} m</strong>`;
+        directionEl.innerHTML = `🧭 Direction: <strong>${bearing.toFixed(2)}°</strong>`;
+        speedEl.innerHTML = `🏃 Speed: <strong>${(speed ? (speed * 3.6).toFixed(1) : kmh.toFixed(1))} km/h</strong>`;
+        lastUpdateEl.innerHTML = `🕒 Last update: <strong>${formatTime()}</strong>`;
+
+        // 🧾 Log all important data in console
+        console.log({
+          lat: latitude.toFixed(6),
+          lng: longitude.toFixed(6),
+          accuracy: accuracy.toFixed(1),
+          speed: (speed ? (speed * 3.6).toFixed(1) : kmh.toFixed(1)),
+          bearing: bearing.toFixed(2),
+          toHospital: latLng.distanceTo(destination).toFixed(1),
+          time: formatTime()
+        });
+
+      },
+      (err) => {
+        gpsStatus.innerHTML = "❌ Error: " + err.message;
+        gpsStatus.className = "info status-error";
+        console.error("GPS Error:", err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000
+      }
+    );
+  } else {
+    gpsStatus.innerHTML = "❌ GPS not supported on this browser.";
+  }
+</script>
 
 </body>
 </html>
